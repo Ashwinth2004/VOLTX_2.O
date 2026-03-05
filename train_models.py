@@ -1,19 +1,3 @@
-"""
-VOLTX 2.0 — ML Training Pipeline (Leakage-safe + Tuned)
-- Reads:  data/tneb_smart_meter_readings.csv
-- Writes: data/tneb_scored_results.csv
-         data/model_comparison.csv
-         data/model_results.json
-         data/*.pkl  (models + preprocessors)
-
-Key upgrades:
-✅ Group split by meter_id (prevents leakage)
-✅ Train/Val/Test split
-✅ Imputer+Scaler fit ONLY on train
-✅ Tuned RF + GB using GroupKFold CV
-✅ Honest final metrics on TEST set only
-"""
-
 import os, json, pickle, warnings
 warnings.filterwarnings("ignore")
 
@@ -35,26 +19,22 @@ print("=" * 58)
 print("  VOLTX 2.0 — ML Training Pipeline (Tuned + Safe)")
 print("=" * 58)
 
-# ─────────────────────────────────────────────────────────
-# 1) LOAD DATA
-# ─────────────────────────────────────────────────────────
+
 print("\n[1/5] Loading data...")
 DATA_PATH = "data/tneb_smart_meter_readings.csv"
 df = pd.read_csv(DATA_PATH)
 print(f"   → {len(df):,} rows loaded")
 
-# Ensure needed columns exist
+
 need_cols = ["meter_id", "anomaly_label"]
 for c in need_cols:
     if c not in df.columns:
         raise ValueError(f"Missing required column: {c}")
 
-# ─────────────────────────────────────────────────────────
-# 2) FEATURE ENGINEERING (same logic as your original)
-# ─────────────────────────────────────────────────────────
+
 print("\n[2/5] Engineering features...")
 
-# Fill missing base sensor cols only for feature creation (not scaled yet)
+# Fill missing 
 for col in ["kwh_consumed", "voltage_volts", "current_amps", "power_factor"]:
     if col in df.columns:
         df[col] = df[col].fillna(df[col].median())
@@ -101,9 +81,7 @@ groups = df["meter_id"].astype(str).values
 
 print(f"   → {len(FEATURES)} features ready")
 
-# ─────────────────────────────────────────────────────────
-# 3) GROUP-SAFE TRAIN / VAL / TEST SPLIT
-# ─────────────────────────────────────────────────────────
+
 print("\n[3/5] Creating group-safe Train/Val/Test splits...")
 
 # 20% TEST
@@ -126,9 +104,7 @@ print(f"   → Train: {len(X_train):,} | Val: {len(X_val):,} | Test: {len(X_test
 print(f"   → Anomaly rate (Train/Val/Test): "
       f"{y_train.mean():.3f} / {y_val.mean():.3f} / {y_test.mean():.3f}")
 
-# ─────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────
+
 def metric_pack(y_true, y_pred, y_prob):
     acc  = accuracy_score(y_true, y_pred)
     prec = precision_score(y_true, y_pred, zero_division=0)
@@ -151,15 +127,13 @@ def print_metrics(tag, pack):
           f"Prec={pack['precision']:.4f}  Rec={pack['recall']:.4f}  "
           f"F1={pack['f1_score']:.4f}  AUC={pack['roc_auc']:.4f}")
 
-# ─────────────────────────────────────────────────────────
-# 4) TRAIN + TUNE MODELS (using CV on TRAIN only)
-# ─────────────────────────────────────────────────────────
+
 print("\n[4/5] Training + tuning models (no leakage)...")
 
-# Preprocess pipeline (fit only on train inside CV)
+# Preprocess 
 preprocess = Pipeline([
     ("imputer", SimpleImputer(strategy="median")),
-    ("scaler", RobustScaler()),
+    ("scaler", RobustScaler()), #outlier
 ])
 
 # ── Random Forest (tuned) ────────────────────────────────
@@ -223,7 +197,7 @@ gb_search.fit(X_train, y_train, groups=groups_train)
 gb_best = gb_search.best_estimator_
 print(f"   → GB best params: {gb_search.best_params_}")
 
-# ── Logistic Regression (strong baseline, not heavily tuned)
+# ── Logistic Regression
 lr_pipe = Pipeline([
     ("prep", preprocess),
     ("clf", LogisticRegression(
@@ -236,7 +210,6 @@ lr_pipe = Pipeline([
 lr_pipe.fit(X_train, y_train)
 
 # ── Isolation Forest (unsupervised)
-# Fit preprocess on TRAIN only, then iso on transformed TRAIN
 prep_fit = preprocess.fit(X_train)
 X_train_s = prep_fit.transform(X_train)
 X_all_s   = prep_fit.transform(X)  # for scoring later
@@ -248,9 +221,7 @@ iso = IsolationForest(
 )
 iso.fit(X_train_s)
 
-# ─────────────────────────────────────────────────────────
-# 5) EVALUATION (VAL + TEST) and FINAL SCORING
-# ─────────────────────────────────────────────────────────
+
 print("\n[5/5] Evaluating models (VAL then TEST) + scoring full dataset...")
 
 results = {}
@@ -261,7 +232,7 @@ def eval_pipe(name, pipe, X_split, y_split):
     pack = metric_pack(y_split, pred, prob)
     return pack
 
-# Validate (for your understanding)
+# Validate (
 rf_val = eval_pipe("Random Forest", rf_best, X_val, y_val)
 gb_val = eval_pipe("Gradient Boosting", gb_best, X_val, y_val)
 lr_val = eval_pipe("Logistic Regression", lr_pipe, X_val, y_val)
@@ -270,18 +241,16 @@ print_metrics("RF (VAL)", rf_val)
 print_metrics("GB (VAL)", gb_val)
 print_metrics("LR (VAL)", lr_val)
 
-# Test (final honest metrics)
+# Test 
 rf_test = eval_pipe("Random Forest", rf_best, X_test, y_test)
 gb_test = eval_pipe("Gradient Boosting", gb_best, X_test, y_test)
 lr_test = eval_pipe("Logistic Regression", lr_pipe, X_test, y_test)
 
-# Isolation forest test evaluation (make it comparable)
+# Isolation forest test 
 iso_raw_all = iso.predict(X_all_s)
 iso_pred_all = np.where(iso_raw_all == -1, 1, 0)
 iso_scores = -iso.decision_function(X_all_s)
 iso_norm = (iso_scores - iso_scores.min()) / (iso_scores.max() - iso_scores.min() + 1e-9)
-
-# For test slice only
 iso_pred_test = iso_pred_all[test_idx]
 iso_prob_test = iso_norm[test_idx]
 iso_test = metric_pack(y_test, iso_pred_test, iso_prob_test)
@@ -297,11 +266,11 @@ results["Random Forest"] = {"model":"Random Forest", **rf_test}
 results["Gradient Boosting"] = {"model":"Gradient Boosting", **gb_test}
 results["Logistic Regression"] = {"model":"Logistic Regression", **lr_test}
 
-# Pick best model by TEST F1 (honest)
+# Pick best model by TEST F1
 best_name = max(results.keys(), key=lambda k: results[k]["f1_score"])
 print(f"\n✅ Best by TEST F1: {best_name} (F1={results[best_name]['f1_score']:.4f})")
 
-# Refit supervised best models on Train+Val for final scoring on ALL data
+
 rf_best.fit(X_trainval, y_trainval)
 gb_best.fit(X_trainval, y_trainval)
 
@@ -324,7 +293,8 @@ df["risk_band"] = pd.cut(
     right=False
 )
 
-# FIXED: use pandas clip(lower=0) (no numpy 'lower' error)
+
+
 df["estimated_loss_rs"] = np.where(
     df["risk_band"] == "High",
     (df["mean_kwh"] - df["kwh_consumed"].clip(lower=0)) * df["tariff_rs_per_kwh"],

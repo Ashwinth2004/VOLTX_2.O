@@ -1,0 +1,34 @@
+{
+  "Isolation Forest": {
+    "model": "Isolation Forest",
+    "accuracy": 0.947,
+    "precision": 0.4241,
+    "recall": 0.3846,
+    "f1_score": 0.4034,
+    "roc_auc": 0.871
+  },
+  "Random Forest": {
+    "model": "Random Forest",
+    "accuracy": 0.9857,
+    "precision": 0.8802,
+    "recall": 0.8014,
+    "f1_score": 0.839,
+    "roc_auc": 0.9826
+  },
+  "Gradient Boosting": {
+    "model": "Gradient Boosting",
+    "accuracy": 0.9879,
+    "precision": 0.9331,
+    "recall": 0.7979,
+    "f1_score": 0.8602,
+    "roc_auc": 0.9837
+  },
+  "Logistic Regression": {
+    "model": "Logistic Regression",
+    "accuracy": 0.906,
+    "precision": 0.3139,
+    "recall": 0.8587,
+    "f1_score": 0.4598,
+    "roc_auc": 0.9491
+  }
+}
